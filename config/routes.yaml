@@ -1,0 +1,14 @@
+routes:
+  deterministic:
+    model: deterministic-v1
+    providers: [deterministic]
+    input_cost_per_million: "0"
+    output_cost_per_million: "0"
+  general:
+    model: gpt-5.6
+    providers: [openai, deterministic]
+    input_cost_per_million: "0"
+    output_cost_per_million: "0"
+
+# Prices intentionally default to zero. Set current contracted prices in your
+# deployment; do not rely on a source-code constant for billing decisions.

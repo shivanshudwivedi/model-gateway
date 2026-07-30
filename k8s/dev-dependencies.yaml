@@ -1,0 +1,65 @@
+# Development-only dependencies. Use managed PostgreSQL and Redis in production.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: model-gateway
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - { name: POSTGRES_DB, value: gateway }
+            - { name: POSTGRES_USER, value: gateway }
+            - { name: POSTGRES_PASSWORD, value: gateway }
+          ports:
+            - { containerPort: 5432 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: model-gateway
+spec:
+  selector: { app: postgres }
+  ports:
+    - { port: 5432 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: model-gateway
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - { containerPort: 6379 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: model-gateway
+spec:
+  selector: { app: redis }
+  ports:
+    - { port: 6379 }

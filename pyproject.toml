@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "model-gateway"
+version = "0.1.0"
+description = "Durable provider-agnostic AI gateway and asynchronous job platform."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Shivanshu Dwivedi" }]
+dependencies = [
+  "alembic>=1.14,<2",
+  "asyncpg>=0.30,<1",
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "openai>=2.0,<3",
+  "prometheus-client>=0.21,<1",
+  "pydantic-settings>=2.7,<3",
+  "pyyaml>=6.0,<7",
+  "redis>=5.2,<8",
+  "sqlalchemy[asyncio]>=2.0.36,<3",
+  "structlog>=24.4,<27",
+  "taskiq>=0.11,<1",
+  "taskiq-redis>=1.0,<2",
+  "tenacity>=9,<10",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "aiosqlite>=0.20,<1",
+  "mypy>=1.14,<2",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.25,<2",
+  "pytest-cov>=6,<8",
+  "ruff>=0.9,<1",
+  "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+gateway-dispatcher = "gateway.dispatcher:main"
+gateway-benchmark = "gateway.benchmark:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gateway"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["gateway"]
+
+[tool.coverage.run]
+source = ["gateway"]
+branch = true
+omit = [
+  "src/gateway/api.py",
+  "src/gateway/benchmark.py",
+  "src/gateway/broker.py",
+  "src/gateway/dispatcher.py",
+  "src/gateway/logging.py",
+  "src/gateway/main.py",
+  "src/gateway/providers/http.py",
+  "src/gateway/providers/openai.py",
+  "src/gateway/runtime.py",
+  "src/gateway/tasks.py",
+]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true

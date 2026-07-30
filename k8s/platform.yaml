@@ -1,0 +1,190 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: model-gateway
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: model-gateway
+data:
+  ENVIRONMENT: production
+  DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
+  REDIS_URL: redis://redis:6379/0
+  REDIS_ADDRESS: redis:6379
+  ROUTES_CONFIG: /app/config/routes.yaml
+  DEFAULT_ROUTE: deterministic
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+  JOB_MAX_ATTEMPTS: "3"
+  JOB_LEASE_SECONDS: "300"
+  TASKIQ_STREAM: model-gateway-jobs
+  TASKIQ_CONSUMER_GROUP: taskiq
+---
+# Replace before deployment or manage with External Secrets / Sealed Secrets.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gateway-secrets
+  namespace: model-gateway
+type: Opaque
+stringData:
+  API_KEYS: replace-me
+  OPENAI_API_KEY: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-api
+  namespace: model-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: gateway-api }
+  template:
+    metadata:
+      labels: { app: gateway-api }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api
+          image: ghcr.io/shivanshudwivedi/model-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8000 }
+          envFrom:
+            - configMapRef: { name: gateway-config }
+            - secretRef: { name: gateway-secrets }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-api
+  namespace: model-gateway
+spec:
+  selector: { app: gateway-api }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-dispatcher
+  namespace: model-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: gateway-dispatcher }
+  template:
+    metadata:
+      labels: { app: gateway-dispatcher }
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: dispatcher
+          image: ghcr.io/shivanshudwivedi/model-gateway:latest
+          command: ["gateway-dispatcher"]
+          envFrom:
+            - configMapRef: { name: gateway-config }
+            - secretRef: { name: gateway-secrets }
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-worker
+  namespace: model-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gateway-worker }
+  template:
+    metadata:
+      labels: { app: gateway-worker }
+    spec:
+      terminationGracePeriodSeconds: 300
+      containers:
+        - name: worker
+          image: ghcr.io/shivanshudwivedi/model-gateway:latest
+          command: ["taskiq", "worker", "gateway.tasks:broker", "--workers", "2"]
+          envFrom:
+            - configMapRef: { name: gateway-config }
+            - secretRef: { name: gateway-secrets }
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { cpu: "2", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: gateway-worker
+  namespace: model-gateway
+spec:
+  scaleTargetRef:
+    name: gateway-worker
+  pollingInterval: 5
+  cooldownPeriod: 60
+  minReplicaCount: 1
+  maxReplicaCount: 100
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+  triggers:
+    - type: redis-streams
+      metadata:
+        addressFromEnv: REDIS_ADDRESS
+        stream: model-gateway-jobs
+        consumerGroup: taskiq
+        lagCount: "100"
+        activationLagCount: "1"
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-api
+  namespace: model-gateway
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: gateway-api }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gateway-migrate
+  namespace: model-gateway
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/shivanshudwivedi/model-gateway:latest
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef: { name: gateway-config }
+            - secretRef: { name: gateway-secrets }
