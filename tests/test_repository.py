@@ -96,3 +96,51 @@ async def test_failure_cancellation_and_outbox_updates(session) -> None:
 
 def test_request_digest_is_canonical() -> None:
     assert request_digest(payload()) == request_digest(payload())
+
+
+@pytest.mark.parametrize("completion", ["success", "failure"])
+async def test_reclaimed_lease_rejects_stale_worker(session, completion) -> None:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    repository = JobRepository(session)
+    job, _ = await repository.create("tenant", payload(), None)
+    stale = await repository.claim(job.id, 60)
+    assert stale is not None
+    stale_attempt = stale.attempt
+    stale.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await session.commit()
+
+    # A different session is essential: the original worker retains attempt 1.
+    async with AsyncSession(session.bind, expire_on_commit=False) as other:
+        current_repository = JobRepository(other)
+        current = await current_repository.claim(job.id, 60)
+        assert current is not None and current.attempt == stale_attempt + 1
+        if completion == "success":
+            changed = await repository.succeed(
+                stale, GenerationResult(text="stale", provider="test", model="m", latency_ms=1)
+            )
+        else:
+            changed = await repository.fail(stale, "stale", "obsolete failure")
+        assert not changed
+        await other.refresh(current)
+        assert current.status == JobStatus.RUNNING
+        assert current.result_payload is None and current.error_code is None
+        assert await current_repository.succeed(
+            current, GenerationResult(text="current", provider="test", model="m", latency_ms=1)
+        )
+        await session.refresh(stale)
+        assert stale.result_payload["text"] == "current"
+
+
+async def test_expired_worker_cannot_commit_without_reclaim(session) -> None:
+    repository = JobRepository(session)
+    job, _ = await repository.create("tenant", payload(), None)
+    claimed = await repository.claim(job.id, 60)
+    assert claimed is not None
+    claimed.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await session.commit()
+    assert not await repository.succeed(
+        claimed, GenerationResult(text="late", provider="test", model="m", latency_ms=1)
+    )
+    assert not await repository.fail(claimed, "late", "late failure")
+    assert claimed.status == JobStatus.RUNNING

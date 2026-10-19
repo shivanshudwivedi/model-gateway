@@ -95,7 +95,12 @@ class JobRepository:
     async def succeed(self, job: Job, result: GenerationResult) -> bool:
         statement = (
             update(Job)
-            .where(Job.id == job.id, Job.status == JobStatus.RUNNING)
+            .where(
+                Job.id == job.id,
+                Job.status == JobStatus.RUNNING,
+                Job.attempt == job.attempt,
+                Job.lease_expires_at > datetime.now(UTC),
+            )
             .values(
                 status=JobStatus.SUCCEEDED,
                 result_payload=result.model_dump(mode="json"),
@@ -109,7 +114,10 @@ class JobRepository:
                 lease_expires_at=None,
             )
         )
-        outcome = cast(CursorResult[Any], await self.session.execute(statement))
+        outcome = cast(
+            CursorResult[Any],
+            await self.session.execute(statement.execution_options(synchronize_session=False)),
+        )
         await self.session.commit()
         await self.session.refresh(job)
         return bool(outcome.rowcount)
@@ -117,7 +125,12 @@ class JobRepository:
     async def fail(self, job: Job, code: str, message: str) -> bool:
         statement = (
             update(Job)
-            .where(Job.id == job.id, Job.status == JobStatus.RUNNING)
+            .where(
+                Job.id == job.id,
+                Job.status == JobStatus.RUNNING,
+                Job.attempt == job.attempt,
+                Job.lease_expires_at > datetime.now(UTC),
+            )
             .values(
                 status=JobStatus.FAILED,
                 error_code=code,
@@ -126,7 +139,10 @@ class JobRepository:
                 lease_expires_at=None,
             )
         )
-        outcome = cast(CursorResult[Any], await self.session.execute(statement))
+        outcome = cast(
+            CursorResult[Any],
+            await self.session.execute(statement.execution_options(synchronize_session=False)),
+        )
         await self.session.commit()
         await self.session.refresh(job)
         return bool(outcome.rowcount)
@@ -141,7 +157,10 @@ class JobRepository:
                 lease_expires_at=None,
             )
         )
-        outcome = cast(CursorResult[Any], await self.session.execute(statement))
+        outcome = cast(
+            CursorResult[Any],
+            await self.session.execute(statement.execution_options(synchronize_session=False)),
+        )
         await self.session.commit()
         await self.session.refresh(job)
         return bool(outcome.rowcount)

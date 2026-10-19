@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 from contextlib import suppress
 from decimal import Decimal
 from typing import Annotated
@@ -146,12 +147,14 @@ async def live() -> dict[str, str]:
 
 
 @router.get("/health/ready", response_model=HealthResponse, include_in_schema=False)
-async def ready(request: Request, session: SessionDep) -> HealthResponse:
+async def ready(request: Request, response: Response, session: SessionDep) -> HealthResponse:
     checks = {"postgres": False, "redis": False}
     with suppress(Exception):
         checks["postgres"] = (await session.scalar(text("SELECT 1"))) == 1
     with suppress(Exception):
         checks["redis"] = bool(await request.app.state.redis.ping())
+    if not all(checks.values()):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return HealthResponse(
         status="ok" if all(checks.values()) else "degraded",
         version=request.app.version,
@@ -187,4 +190,4 @@ def _job_response(job: Job) -> JobResponse:
 
 
 def _constant_time_equal(left: str, right: str) -> bool:
-    return hashlib.sha256(left.encode()).digest() == hashlib.sha256(right.encode()).digest()
+    return hmac.compare_digest(left.encode(), right.encode())

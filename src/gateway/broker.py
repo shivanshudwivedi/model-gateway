@@ -14,4 +14,6 @@ broker = RedisStreamBroker(
     url=settings.redis_url,
     queue_name=settings.taskiq_stream,
     consumer_group_name=settings.taskiq_consumer_group,
+    # Recover a pending message only after its database claim can expire.
+    idle_timeout=(settings.job_lease_seconds + 1) * 1000,
 ).with_result_backend(result_backend)

@@ -1,11 +1,16 @@
 # Model Gateway & Async Job Platform
 
-A production-minded, provider-agnostic AI gateway built with FastAPI, PostgreSQL, Redis
+[![CI](https://github.com/shivanshudwivedi/model-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/shivanshudwivedi/model-gateway/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+A provider-agnostic AI gateway built with FastAPI, PostgreSQL, Redis
 Streams, TaskIQ, Docker, and Kubernetes.
 
 It exposes low-latency synchronous generation and durable asynchronous jobs while enforcing
 API-key authentication, distributed rate limits, retries, provider fallbacks, idempotency,
 and complete request accounting.
+
+**Start here:** [Engineering walkthrough](docs/reviewer-guide.md) · [Run an operational task](docs/walkthrough.md) · [Architecture](docs/architecture.md) · [Operations](docs/operations.md) · [Benchmark evidence](docs/benchmarks.md)
 
 ## Capabilities
 
@@ -37,10 +42,10 @@ API transaction                 Dispatcher                 Worker
 
 The outbox closes the commit/publish gap. A dispatcher crash after publication can create a
 duplicate delivery, but cannot lose a job. Workers atomically claim only queued jobs or jobs
-whose lease expired, so duplicate messages are harmless. Redis Streams retain unacknowledged
+whose lease expired. A completion must match the current attempt and an unexpired lease, preventing stale workers from overwriting a newer result. Redis Streams retain unacknowledged
 work for recovery after worker termination.
 
-This provides **at-least-once delivery with idempotent execution**, not magical exactly-once
+This provides **at-least-once delivery with fenced database completion**, not magical exactly-once
 delivery. External providers may still accept a request immediately before a network failure;
 use provider-supported idempotency keys when extending adapters for side-effecting operations.
 
@@ -100,6 +105,8 @@ OpenAPI documentation is available at <http://localhost:8000/docs> and Prometheu
 | `GET /health/live` | Process liveness |
 | `GET /health/ready` | PostgreSQL and Redis readiness |
 | `GET /metrics/` | Prometheus metrics |
+
+This is an internal reference implementation; the [reviewer guide](docs/reviewer-guide.md#evidence-and-limits) documents validation scope and deployment gaps.
 
 All business endpoints require `X-API-Key`. Submit an `Idempotency-Key` on job creation:
 

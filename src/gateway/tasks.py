@@ -29,9 +29,9 @@ async def process_job(job_id: str) -> None:
         try:
             request = GenerationRequest.model_validate(job.request_payload)
             result = await get_executor().execute(request)
-            await repository.succeed(job, result)
+            committed = await repository.succeed(job, result)
             await logger.ainfo(
-                "job_succeeded",
+                "job_succeeded" if committed else "job_completion_discarded",
                 job_id=job_id,
                 provider=result.provider,
                 model=result.model,

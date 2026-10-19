@@ -23,7 +23,7 @@ queued ──claim──> running ──success──> succeeded
 ```
 
 A running job has a lease. If a worker dies, a redelivered message may reclaim the job after
-the lease expires. Terminal states cannot be claimed again.
+the lease expires. Terminal states cannot be claimed again. Success and failure updates compare both the attempt number and lease expiry; an expired or superseded worker cannot commit. There is no lease heartbeat, so the lease must exceed the complete route execution time, including retries and fallbacks. Provider calls can overlap after recovery; the fence protects the database result, not provider billing. Redis pending-message recovery is configured to wait beyond the database lease.
 
 ## Delivery guarantees
 

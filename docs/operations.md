@@ -26,8 +26,7 @@
 **Dispatcher unavailable:** jobs remain queued in PostgreSQL. Restart dispatchers; outbox
 rows resume automatically.
 
-**Redis unavailable:** dispatch attempts remain unpublished with the last error. The API can
-still accept jobs while PostgreSQL is healthy, but readiness is degraded.
+**Redis unavailable:** dispatch attempts remain unpublished with the last error. Submission rate limiting also depends on Redis, so new submissions can fail while it is unavailable. PostgreSQL retains previously committed jobs; readiness returns HTTP 503.
 
 **Worker killed:** the Stream message remains unacknowledged. After redelivery and lease
 expiry, another worker reclaims it.
@@ -50,3 +49,13 @@ The benchmark verifies application-level reconciliation, not infrastructure dura
 every failure mode. Record commit SHA, image digest, instance sizes, database/Redis settings,
 replica counts, duration, and the result JSON. Add controlled pod, Redis, and dispatcher
 failures when qualifying production recovery behavior.
+
+## Lease sizing and sensitive data
+
+Set `JOB_LEASE_SECONDS` above the worst-case execution duration across all provider retries and fallbacks. There is no heartbeat. Late completion is discarded, and recovery can call the provider again; this may create additional charges. Do not use these adapters for irreversible external actions without a provider-supported idempotency contract.
+
+Prompts, metadata, results and provider error strings can be sensitive. The service does not implement a redaction pipeline, database RLS, RBAC, per-tenant encryption or automatic retention. Keep `/docs`, `/metrics/` and dependencies behind trusted network boundaries. Set explicit payload limits, retention, credentials and backup policies at deployment.
+
+## Dependency compatibility
+
+TaskIQ is constrained to the 0.12 release family: TaskIQ 0.13 removed compatibility helpers used by the Redis integration selected on Python 3.11. CI imports the actual worker entry point so a passing core test suite cannot hide a broken worker installation.
